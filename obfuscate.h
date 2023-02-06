@@ -27,11 +27,23 @@ std::cout << obfuscated_string << std::endl;
 
 ----------------------------------------------------------------------------- */
 
+#pragma once
+
+// Workaround for __LINE__ not being constexpr when /ZI (Edit and Continue) is enabled in Visual Studio
+// See: https://developercommunity.visualstudio.com/t/-line-cannot-be-used-as-an-argument-for-constexpr/195665
+#ifdef _MSC_VER
+	#define AY_CAT(X,Y) AY_CAT2(X,Y)
+	#define AY_CAT2(X,Y) X##Y
+	#define AY_LINE int(AY_CAT(__LINE__,U))
+#else
+	#define AY_LINE __LINE__
+#endif
+
 #ifndef AY_OBFUSCATE_DEFAULT_KEY
 	// The default 64 bit key to obfuscate strings with.
 	// This can be user specified by defining AY_OBFUSCATE_DEFAULT_KEY before 
 	// including obfuscate.h
-	#define AY_OBFUSCATE_DEFAULT_KEY 0x5AA5D2B4D39B2B69ull
+	#define AY_OBFUSCATE_DEFAULT_KEY ay::generate_key(AY_LINE)
 #endif
 
 namespace ay
@@ -39,6 +51,24 @@ namespace ay
 	using size_type = unsigned long long;
 	using key_type = unsigned long long;
 
+	// Generate a pseudo-random key that spans all 8 bytes
+	constexpr key_type generate_key(key_type seed)
+	{
+		// Use the MurmurHash3 64-bit finalizer to hash our seed
+		key_type key = seed;
+		key ^= (key >> 33);
+		key *= 0xff51afd7ed558ccd;
+		key ^= (key >> 33);
+		key *= 0xc4ceb9fe1a85ec53;
+		key ^= (key >> 33);
+
+		// Make sure that a bit in each byte is set
+		key |= 0x0101010101010101ull;
+
+		return key;
+	}
+
+	// Obfuscates or deobfuscates data with key
 	constexpr void cipher(char* data, size_type size, key_type key)
 	{
 		// Obfuscate with a simple XOR cipher based on key
@@ -178,10 +208,10 @@ namespace ay
 		static_assert((key) >= (1ull << 56), "key must span all 8 bytes"); \
 		constexpr auto n = sizeof(data)/sizeof(data[0]); \
 		constexpr auto obfuscator = ay::make_obfuscator<n, key>(data); \
-		static auto obfuscated_data = ay::obfuscated_data<n, key>(obfuscator); \
+		thread_local auto obfuscated_data = ay::obfuscated_data<n, key>(obfuscator); \
 		return obfuscated_data; \
 	}()
-	
+
 /* -------------------------------- LICENSE ------------------------------------
 
 Public Domain (http://www.unlicense.org)
